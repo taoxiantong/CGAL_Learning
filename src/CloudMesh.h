@@ -195,7 +195,7 @@ public:
 
     // 点云重建
     SMesh Reconstruction(const Point_set& points, unsigned int iterations,
-                  unsigned int neighbors, unsigned int fitting, unsigned int monge);
+                  unsigned int neighbors, unsigned int fitting, unsigned int monge, const bool AlphaShape);
 
     // 抓取点预测
     bool GrsapPosePredict(boost::shared_ptr<pcl::visualization::PCLVisualizer> &viewer, pcl::PointCloud<pcl::PointXYZRGBNormal> cloud0, 
@@ -696,7 +696,7 @@ ShapeNormal CloudMesh::ShapeNormalAver(PCLCloud Cloud){
 // 【三维重建】
 // 输入点云 输出mesh
 // 参数： 点云 迭代次数 区域点云数量 一般为12 ， 后面两个一般为 2
-SMesh Reconstruction(const Point_set& points, unsigned int iterations, unsigned int neighbors, unsigned int fitting, unsigned int monge){
+SMesh Reconstruction(const Point_set& points, unsigned int iterations, unsigned int neighbors, unsigned int fitting, unsigned int monge, const bool AlphaShape){
     std::cout << "【START】 Point reconstruction. " <<std::endl;
 
     typedef CGAL::Scale_space_surface_reconstruction_3<Kernel> ScaleSpace;
@@ -730,60 +730,89 @@ SMesh Reconstruction(const Point_set& points, unsigned int iterations, unsigned 
     squared_radius = 0.002;
     // squared_radius = CGAL::compute_average_spacing<CGAL::Parallel_if_available_tag> (points, 16); //CGAL::parameters::point_map(CGAL::First_of_pair_property_map<PointVectorPair>())
 
-    // 最后一个参数强制封闭模型
-    ScaleSpaceASM mesher (squared_radius, false, true);
-    reconstruct.reconstruct_surface (mesher);
 
-    std::ptrdiff_t num = std::distance( mesher.garbage_begin(  ),
-                                                mesher.garbage_end(  ) );
-
+    // advancing_front_mesher 和 Alpha shape 只能二选一，默认是Alpha
+    // AlphaShape 设计是否强制闭合
     soup.points.reserve(points.size());
-    soup.polygons.reserve(num);
-
-    std::map<std::size_t, std::size_t> map_i2i;
-
-    std::size_t current_index = 0;
-    for (ScaleSpaceASM::Facet_iterator it=mesher.garbage_begin(), end=mesher.garbage_end();it!=end;++it)
+    if(AlphaShape)
     {
-        for (unsigned int ind = 0; ind < 3; ++ ind)
+        // 最后一个参数强制封闭模型
+        ScaleSpaceASM mesher(squared_radius, false, true);
+        reconstruct.reconstruct_surface (mesher);
+
+        std::ptrdiff_t num = std::distance( mesher.garbage_begin(  ),
+                                                    mesher.garbage_end(  ) );
+        soup.polygons.reserve(num);
+
+        std::map<std::size_t, std::size_t> map_i2i;
+        std::size_t current_index = 0;
+        for (ScaleSpaceASM::Facet_iterator it=mesher.garbage_begin(), end=mesher.garbage_end();it!=end;++it)
         {
-            if (map_i2i.find ((*it)[ind]) == map_i2i.end ())
+            for (unsigned int ind = 0; ind < 3; ++ ind)
             {
-                map_i2i.insert (std::make_pair ((*it)[ind], current_index ++));
-                Point_3 p = points.point(*(points.begin() + (*it)[ind]));       // 这句有问题
-                        // Point_3 p = points.point(*(points.begin_or_selection_begin() + (*it)[ind]));
-                            //   const_iterator begin_or_selection_begin() const
-                            //   {
-                            //     return (this->m_nb_removed == 0 ? begin() : first_selected());
-                            //   }
-                            //   iterator begin_or_selection_begin()
-                            //   {
-                            //     return (this->m_nb_removed == 0 ? begin() : first_selected());
-                            //   }
-                soup.points.push_back(Point_3(p.x (), p.y (), p.z ()));
+                if (map_i2i.find ((*it)[ind]) == map_i2i.end ())
+                {
+                    map_i2i.insert (std::make_pair ((*it)[ind], current_index ++));
+                    Point_3 p = points.point(*(points.begin() + (*it)[ind]));       // 这句有问题
+                            // Point_3 p = points.point(*(points.begin_or_selection_begin() + (*it)[ind]));
+                                //   const_iterator begin_or_selection_begin() const
+                                //   {
+                                //     return (this->m_nb_removed == 0 ? begin() : first_selected());
+                                //   }
+                                //   iterator begin_or_selection_begin()
+                                //   {
+                                //     return (this->m_nb_removed == 0 ? begin() : first_selected());
+                                //   }
+                    soup.points.push_back(Point_3(p.x (), p.y (), p.z ()));
 
+                }
             }
+
+            Polygon_3 new_polygon(3);
+            new_polygon[0] = map_i2i[(*it)[0]];
+            new_polygon[1] = map_i2i[(*it)[1]];
+            new_polygon[2] = map_i2i[(*it)[2]];
+            soup.polygons.push_back(new_polygon);
         }
-
-        Polygon_3 new_polygon(3);
-        new_polygon[0] = map_i2i[(*it)[0]];
-        new_polygon[1] = map_i2i[(*it)[1]];
-        new_polygon[2] = map_i2i[(*it)[2]];
-        soup.polygons.push_back(new_polygon);
     }
+    else
+    {
+        ScaleSpaceAFM mesher(0.0, 5.0, 30.0);
+        reconstruct.reconstruct_surface (mesher);
+        soup.polygons.reserve(reconstruct.number_of_facets ());
 
+        std::map<std::size_t, std::size_t> map_i2i;
+        std::size_t current_index = 0;
 
+        for (ScaleSpace::Facet_iterator it = reconstruct.facets_begin();
+            it != reconstruct.facets_end(); ++ it)
+        {
+            for (unsigned int ind = 0; ind < 3; ++ ind)
+            {
+                if (map_i2i.find ((*it)[ind]) == map_i2i.end ())
+                {
+                    map_i2i.insert (std::make_pair ((*it)[ind], current_index ++));
+                    Point_3 p = points.point(*(points.begin() + (*it)[ind]));       // 这句有问题
+                    soup.points.push_back(Point_3(p.x (), p.y (), p.z ()));
+                }
+            }
+            Polygon_3 new_polygon(3);
+            new_polygon[0] = map_i2i[(*it)[0]];
+            new_polygon[1] = map_i2i[(*it)[1]];
+            new_polygon[2] = map_i2i[(*it)[2]];
+            soup.polygons.push_back(new_polygon);
+        }
+    }
     SMesh myMesh;
     CGAL::Polygon_mesh_processing::polygon_soup_to_polygon_mesh< CGAL::Surface_mesh<Point_3> >(
-                                    soup.points, soup.polygons, myMesh);
+                                        soup.points, soup.polygons, myMesh);
     std::size_t rv = CGAL::Polygon_mesh_processing::remove_isolated_vertices(myMesh);
     if(rv > 0){
-        std::cerr << "Ignore isolated vertices: " << rv << std::endl;
-        myMesh.collect_garbage();
+    std::cerr << "Ignore isolated vertices: " << rv << std::endl;
+    myMesh.collect_garbage();
     }
     if(myMesh.vertices().size() > 0)
-        std::cout << "【SUCESS】 Point reconstruction. " <<std::endl;
-
+    std::cout << "【SUCESS】 Point reconstruction. " <<std::endl;
     return myMesh;
 }
 

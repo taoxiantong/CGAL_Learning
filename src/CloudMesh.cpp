@@ -18,7 +18,7 @@ int main(int argc, char * argv[]){
 
     // 1. 点云重建
     // 迭代4次 区域点云数4 后面两个固定
-    MyModel.MeshInput = Reconstruction(MyModel.PointSetInput, 4, 12, 2, 2);
+    MyModel.MeshInput = Reconstruction(MyModel.PointSetInput, 4, 12, 2, 2, 0);
     MyModel.draw(MyModel.MeshInput);
 
     // 2. 平滑模型
