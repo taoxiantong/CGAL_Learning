@@ -191,7 +191,7 @@ public:
     ShapeNormal ShapeNormalAver(PCLCloud Cloud);
 
     // 7. 匹配适合抓取的两个面
-    vector< vector<int> > MatchPlane(vector<ShapeNormal> SN_Set);
+    vector< vector<int> > MatchPlane(vector<ShapeNormal> SN_Set, int angleD);
 
     // 点云重建
     SMesh Reconstruction(const Point_set& points, unsigned int iterations,
@@ -882,7 +882,7 @@ Bbox CloudMesh::ComputerBbox(SMesh mesh){
 // 输入平面的法线集
 // 返回匹配到的平面集合
 // 返回形式为一个带有两个下标索引对应的集合
-vector< vector<int> > CloudMesh::MatchPlane(vector<ShapeNormal> SN_Set){
+vector< vector<int> > CloudMesh::MatchPlane(vector<ShapeNormal> SN_Set, int angleD=10){
     
     // 寻找相同法线的面
     vector< vector<int> > EqList;
@@ -906,7 +906,8 @@ vector< vector<int> > CloudMesh::MatchPlane(vector<ShapeNormal> SN_Set){
 
             // 计算法线角度
             double err = N1.normal_x * N2.normal_x + N1.normal_y * N2.normal_y + N1.normal_z * N2.normal_z;
-            if (err > 0.984807753) // 10度范围内
+            double angleflag = acos(-1) * angleD / 180 ;
+            if (err > cos(angleflag)) // 10度范围内
             {
                 shape.push_back(Index[j]);
                 Index[j] = -1;

@@ -17,7 +17,7 @@ int main(int argc, char * argv[]){
     MyModel.draw(MyModel.PointSetInput);
 
     // 1. 点云重建
-    // 迭代4次 区域点云数4 后面两个固定
+    // 迭代4次 区域点云数4 后面两个固定  在最后一个是否强制封闭模型
     MyModel.MeshInput = Reconstruction(MyModel.PointSetInput, 4, 12, 2, 2, 0);
     MyModel.draw(MyModel.MeshInput);
 
@@ -28,9 +28,10 @@ int main(int argc, char * argv[]){
 
     // 3. 表面检测提取
     Bbox box =  MyModel.ComputerBbox(smoothM);
-    double Mdix = 0.01 * sqrt(pow((box.xmax()-box.xmin()),2)+pow((box.ymax()-box.ymin()),2)+pow((box.zmax()-box.zmin()),2));
+    double Mdix = 0.9 * 0.01 * sqrt(pow((box.xmax()-box.xmin()),2)+pow((box.ymax()-box.ymin()),2)+pow((box.zmax()-box.zmin()),2));
     int angle = 30;
     int Msize = int (0.01 * smoothM.num_vertices());
+    Msize = 15;
     cout<<"Mesh Bbox: "<< 100 * Mdix<<endl;
     vector<vector<uint32_t>> shape_face_indexs = MyModel.ShapeDetect(smoothM, Mdix, angle, Msize);
     cout<<"shape size: "<< shape_face_indexs.size()<<endl;
@@ -56,7 +57,7 @@ int main(int argc, char * argv[]){
 
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer(new pcl::visualization::PCLVisualizer("PCL Viewer"));
     viewer->setBackgroundColor(0.0, 0.0, 0.0);
-    viewer->addCoordinateSystem(Mdix * 25);
+    // viewer->addCoordinateSystem(Mdix * 25);
 
     // 定一个集 保存平面中点和法线
     vector<ShapeNormal> SN_Set; 
@@ -90,8 +91,8 @@ int main(int argc, char * argv[]){
         
 
 
-        // viewer->addSphere(SN.first, 0.002, c);
-        // viewer->addArrow<pcl::PointXYZ>(arrowend, SN.first, 255, 0, 0, false, (c+"arrow"));
+        viewer->addSphere(SN.first, 0.002, c);
+        viewer->addArrow<pcl::PointXYZ>(arrowend, SN.first, 255, 0, 0, false, (c+"arrow"));
 
 
         // 显示点云
@@ -100,18 +101,15 @@ int main(int argc, char * argv[]){
         viewer->addPointCloud<pcl::PointXYZRGBNormal>(cloudptr, str_p);
         viewer->setPointCloudRenderingProperties(pcl::visualization::PCL_VISUALIZER_POINT_SIZE, 6, str_p);//设置点云大
 
-        // 显示 点云法线
-        // viewer->addPointCloudNormals<pcl::PointXYZRGBNormal>(cloudptr, 1, 2, (str_p+"normal"));
 
         viewer->spinOnce(10);
         // viewer->removeAllPointClouds();
         // viewer->removeAllShapes();
     }
 
-
     // 查找匹配面
     // InvShapeSet 储存所有组的匹配面，一组中包含两个索引值。
-    vector<vector<int> > InvShapeSet = MyModel.MatchPlane(SN_Set);
+    vector<vector<int> > InvShapeSet = MyModel.MatchPlane(SN_Set, 30);
     vector<vector<PCLCloud> > MatchCloud;
     cout<<"InvShapeSet Size: " << InvShapeSet.size() <<endl;
     srand(static_cast<unsigned int>(time(nullptr)));
@@ -129,13 +127,13 @@ int main(int argc, char * argv[]){
         arrowend.x = SN_Set[InvShapeSet[i][0]].first.x + scale * SN_Set[InvShapeSet[i][0]].second.normal_x;
         arrowend.y = SN_Set[InvShapeSet[i][0]].first.y + scale * SN_Set[InvShapeSet[i][0]].second.normal_y;
         arrowend.z = SN_Set[InvShapeSet[i][0]].first.z + scale * SN_Set[InvShapeSet[i][0]].second.normal_z;
-        // viewer->addArrow<pcl::PointXYZ>(arrowend, SN_Set[InvShapeSet[i][0]].first, color.r()/255.0, color.g()/255.0, color.b()/255.0, false, (to_string(i)+"arrow"));
+        viewer->addArrow<pcl::PointXYZ>(arrowend, SN_Set[InvShapeSet[i][0]].first, color.r()/255.0, color.g()/255.0, color.b()/255.0, false, (to_string(i)+"arrow"));
 
         pcl::PointXYZ arrowend_;
         arrowend_.x = SN_Set[InvShapeSet[i][1]].first.x + scale * SN_Set[InvShapeSet[i][1]].second.normal_x;
         arrowend_.y = SN_Set[InvShapeSet[i][1]].first.y + scale * SN_Set[InvShapeSet[i][1]].second.normal_y;
         arrowend_.z = SN_Set[InvShapeSet[i][1]].first.z + scale * SN_Set[InvShapeSet[i][1]].second.normal_z;
-        // viewer->addArrow<pcl::PointXYZ>(arrowend_, SN_Set[InvShapeSet[i][1]].first, color.r()/255.0, color.g()/255.0, color.b()/255.0, false, (to_string(i)+"arrow_"));
+        viewer->addArrow<pcl::PointXYZ>(arrowend_, SN_Set[InvShapeSet[i][1]].first, color.r()/255.0, color.g()/255.0, color.b()/255.0, false, (to_string(i)+"arrow_"));
 
         cout<<"(i,j)" << InvShapeSet[i][0] << " " << InvShapeSet[i][1] <<endl;
         vector<PCLCloud> OneMatchCloud;
@@ -144,43 +142,46 @@ int main(int argc, char * argv[]){
         MatchCloud.push_back(OneMatchCloud);
         // OneMatchCloud.clear();
     }
-//
-    for (size_t i = 0; i < 1; i++)
+
+    if(MatchCloud.size())
     {
-        string Vname1 = "MatchCloud_" + std::to_string(i) + "_0";
-        string Vname2 = "MatchCloud_" + std::to_string(i) + "_1";
-
-        pcl::PointCloud<pcl::PointXYZRGBNormal> cloud0, cloud1;
-        pcl::copyPointCloud(MatchCloud[i][0], cloud0);
-        pcl::copyPointCloud(MatchCloud[i][1], cloud1);
-        // pcl::copyPointCloud(MatchCloud[i][0], *cloudptr0);
-        // pcl::copyPointCloud(MatchCloud[i][1], *cloudptr1);
-        // viewer->addPointCloud<pcl::PointXYZRGBNormal>(cloudptr0, Vname1);
-        // viewer->addPointCloud<pcl::PointXYZRGBNormal>(cloudptr1, Vname2);
-
-        // 计算两个面的距离并显示
-        vector<double> Dis;     // 返回第一个值为长度 ，后面三个中垂直点
-        pcl::PointXYZ PA,PB,PC;
-        pcl::Normal NL1;
-        PA = SN_Set[InvShapeSet[i][0]].first;
-        PB = SN_Set[InvShapeSet[i][1]].first;
-        NL1 = SN_Set[InvShapeSet[i][0]].second;
-        Dis = MyModel.DistanceTwoPlane(PA, PB, NL1);
-        PC.x = Dis[1];
-        PC.y = Dis[2];
-        PC.z = Dis[3];
-        // viewer->addLine(PA, PB,0.0f,0.0f,1.0f,"AB_"+to_string(i));
-        // viewer->addLine(PB, PC,0.0f,0.0f,1.0f,"BC_"+to_string(i));
-        // viewer->addLine(PC, PA,0.0f,0.0f,1.0f,"CA_"+to_string(i));
-
-        try
+    for (size_t i = 0; i < 1; i++)
         {
-            bool success = MyModel.GrsapPosePredict(viewer, cloud0, cloud1, NL1, Dis[0]);
-        }
-        catch(const std::exception& e)
-        {
-            std::cerr << e.what() << '\n';
-            viewer->removeAllShapes();
+            string Vname1 = "MatchCloud_" + std::to_string(i) + "_0";
+            string Vname2 = "MatchCloud_" + std::to_string(i) + "_1";
+
+            pcl::PointCloud<pcl::PointXYZRGBNormal> cloud0, cloud1;
+            pcl::copyPointCloud(MatchCloud[i][0], cloud0);
+            pcl::copyPointCloud(MatchCloud[i][1], cloud1);
+            // pcl::copyPointCloud(MatchCloud[i][0], *cloudptr0);
+            // pcl::copyPointCloud(MatchCloud[i][1], *cloudptr1);
+            // viewer->addPointCloud<pcl::PointXYZRGBNormal>(cloudptr0, Vname1);
+            // viewer->addPointCloud<pcl::PointXYZRGBNormal>(cloudptr1, Vname2);
+
+            // 计算两个面的距离并显示
+            vector<double> Dis;     // 返回第一个值为长度 ，后面三个中垂直点
+            pcl::PointXYZ PA,PB,PC;
+            pcl::Normal NL1;
+            PA = SN_Set[InvShapeSet[i][0]].first;
+            PB = SN_Set[InvShapeSet[i][1]].first;
+            NL1 = SN_Set[InvShapeSet[i][0]].second;
+            Dis = MyModel.DistanceTwoPlane(PA, PB, NL1);
+            PC.x = Dis[1];
+            PC.y = Dis[2];
+            PC.z = Dis[3];
+            // viewer->addLine(PA, PB,0.0f,0.0f,1.0f,"AB_"+to_string(i));
+            // viewer->addLine(PB, PC,0.0f,0.0f,1.0f,"BC_"+to_string(i));
+            // viewer->addLine(PC, PA,0.0f,0.0f,1.0f,"CA_"+to_string(i));
+
+            try
+            {
+                bool success = MyModel.GrsapPosePredict(viewer, cloud0, cloud1, NL1, Dis[0]);
+            }
+            catch(const std::exception& e)
+            {
+                std::cerr << e.what() << '\n';
+                viewer->removeAllShapes();
+            }
         }
     }
 
